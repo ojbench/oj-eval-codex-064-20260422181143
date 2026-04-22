@@ -11,6 +11,7 @@
 #include <type_traits>
 #include <tuple>
 #include <vector>
+#include <utility>
 
 namespace sjtu {
 
@@ -27,6 +28,16 @@ private:
 
 template <typename Tp>
 struct formatter;
+
+// Primary formatter: generic types consume no specific specifier
+// so only %_ is accepted by compile-time checker.
+template <typename T>
+struct formatter {
+    static constexpr auto parse(sv_t) -> std::size_t { return 0; }
+    static auto format_to(std::ostream &os, const T &val, sv_t = "_") -> void {
+        os << val;
+    }
+};
 
 struct format_info {
     inline static constexpr auto npos = static_cast<std::size_t>(-1);
@@ -154,19 +165,23 @@ struct formatter<T> {
 };
 
 // Default formatting helper for %_
+// type trait to detect std::vector
+template <typename> struct is_std_vector : std::false_type {};
+template <typename U, typename A>
+struct is_std_vector<std::vector<U, A>> : std::true_type {};
+
 template <typename T>
 inline auto default_format(std::ostream &os, const T &value) -> void {
     if constexpr (std::same_as<std::decay_t<T>, std::string> ||
                   std::same_as<std::decay_t<T>, std::string_view> ||
                   std::same_as<std::decay_t<T>, const char *> ||
                   std::same_as<std::decay_t<T>, char *>) {
-        formatter<T>::format_to(os, value, "s");
+        formatter<std::decay_t<T>>::format_to(os, value, "s");
     } else if constexpr (std::signed_integral<std::decay_t<T>>) {
-        formatter<T>::format_to(os, value, "d");
+        formatter<std::decay_t<T>>::format_to(os, value, "d");
     } else if constexpr (std::unsigned_integral<std::decay_t<T>>) {
-        formatter<T>::format_to(os, value, "u");
-    } else if constexpr (requires { typename std::decay_t<T>::value_type; } &&
-                         std::same_as<std::decay_t<T>, std::vector<typename std::decay_t<T>::value_type>>) {
+        formatter<std::decay_t<T>>::format_to(os, value, "u");
+    } else if constexpr (is_std_vector<std::decay_t<T>>::value) {
         using Elem = typename std::decay_t<T>::value_type;
         os << '[';
         for (std::size_t i = 0; i < value.size(); ++i) {
@@ -244,6 +259,13 @@ inline auto printf(format_string_t<Args...> fmt, const Args &...args) -> void {
     if constexpr (sizeof...(Args) != 0) {
         if (arg_idx != sizeof...(Args)) throw format_error{"too few specifiers"};
     }
+}
+
+// Overload taking C-string literal to aid deduction and decay handling
+template <typename... Args>
+inline auto printf(const char *fmt_cstr, const Args &...args) -> void {
+    format_string_t<Args...> fmt(fmt_cstr);
+    printf<Args...>(fmt, args...);
 }
 
 } // namespace sjtu
