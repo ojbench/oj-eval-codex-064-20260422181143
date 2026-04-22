@@ -204,10 +204,35 @@ inline auto dispatch_arg(std::ostream &os, Tuple &tup, std::size_t idx, char spe
     constexpr std::size_t N = std::tuple_size_v<std::decay_t<Tuple>>;
     bool handled = false;
     auto call_default = [&](auto &v) {
+        using T = std::decay_t<decltype(v)>;
+        auto print_s = [&] {
+            if constexpr (
+                std::same_as<T, std::string> || std::same_as<T, std::string_view> ||
+                std::same_as<T, const char *> || std::same_as<T, char *>) {
+                formatter<T>::format_to(os, v, "s");
+            } else {
+                throw format_error{"invalid specifier"};
+            }
+        };
+        auto print_d = [&] {
+            if constexpr (std::integral<T>) {
+                os << static_cast<long long>(v);
+            } else {
+                throw format_error{"invalid specifier"};
+            }
+        };
+        auto print_u = [&] {
+            if constexpr (std::integral<T>) {
+                os << static_cast<unsigned long long>(v);
+            } else {
+                throw format_error{"invalid specifier"};
+            }
+        };
+
         if (spec == '_') default_format(os, v);
-        else if (spec == 's') formatter<std::decay_t<decltype(v)>>::format_to(os, v, "s");
-        else if (spec == 'd') formatter<std::decay_t<decltype(v)>>::format_to(os, v, "d");
-        else if (spec == 'u') formatter<std::decay_t<decltype(v)>>::format_to(os, v, "u");
+        else if (spec == 's') print_s();
+        else if (spec == 'd') print_d();
+        else if (spec == 'u') print_u();
         else throw format_error{"invalid specifier"};
     };
 
